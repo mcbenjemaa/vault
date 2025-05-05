@@ -290,6 +290,15 @@ func TestTransit_CreateKey(t *testing.T) {
 			creationParams: map[string]interface{}{"type": "hybrid", "parameter_set": "87", "hybrid_key_type_ec": "ecdsa-p521", "hybrid_key_type_pqc": "ml-dsa"},
 			entOnly:        true,
 		},
+		"Kyber kyber512": {
+			creationParams: map[string]interface{}{"type": "kyber", "parameter_set": "kyber512"},
+		},
+		"Kyber kyber768": {
+			creationParams: map[string]interface{}{"type": "kyber", "parameter_set": "kyber768"},
+		},
+		"Kyber kyber1024": {
+			creationParams: map[string]interface{}{"type": "kyber", "parameter_set": "kyber1024"},
+		},
 		"bad key type": {
 			creationParams: map[string]interface{}{"type": "fake-key-type"},
 			shouldError:    true,

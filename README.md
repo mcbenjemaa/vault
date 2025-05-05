@@ -297,3 +297,46 @@ $ GOOS=linux make dev
 $ VAULT_BINARY=$(pwd)/bin/vault go test -run 'TestRaft_Configuration_Docker' ./vault/external_tests/raft/raft_binary
 ok      github.com/hashicorp/vault/vault/external_tests/raft/raft_binary        20.960s
 ```
+
+Vault Transit Secrets Engine CRYSTALS-Kyber Support
+--------------------
+
+As part of the challenge to support the NIST Post-Quantum Cryptography Standardization process, Vault has added support for CRYSTALS-Kyber in the Transit secrets engine. This is a lattice-based public key encryption scheme that is considered to be quantum-resistant.
+The CRYSTALS-Kyber support in Vault allows users to encrypt and decrypt data using this quantum-resistant algorithm, providing an additional layer of security for sensitive information. This is particularly important as we move towards a future where quantum computers may pose a threat to traditional encryption methods.
+
+In order to test the MVP integration of CRYSTALS-Kyber, you will need to do the following:
+
+```bash
+# Build the vault binary
+make dev
+
+# Start the vault server in dev mode
+./bin/vault server -dev  
+```
+
+Once the server is running, you can use the following commands to enable the Transit secrets engine and perform encryption and decryption operations using CRYSTALS-Kyber:
+
+```bash
+export VAULT_ADDR='http://127.0.0.1:8200'
+
+# Enable the Transit secrets engine
+./bin/vault secrets enable transit
+
+# Create a new key for CRYSTALS-Kyber
+./bin/vault write transit/keys/test-kyber type=kyber parameter_set=kyber512
+
+# Encrypt data using the CRYSTALS-Kyber key
+./bin/vault write transit/encrypt/test-kyber plaintext=$(echo -n "Hello, World" | base64)
+Key            Value
+---            -----
+ciphertext     vault:v1:6rcFl98Wecv+6tsJgXMn0mPfiZk0ecAmrPVWWoaYXuqwN8OCoE0DJg==
+key_version    1
+
+
+# Decrypt data using the CRYSTALS-Kyber key
+./bin/vault write transit/decrypt/test-kyber ciphertext=vault:v1:6rcFl98Wecv+6tsJgXMn0mPfiZk0ecAmrPVWWoaYXuqwN8OCoE0DJg==
+Key          Value
+---          -----
+plaintext    SGVsbG8sIFdvcmxk
+
+```

@@ -19,6 +19,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/cloudflare/circl/kem/kyber/kyber512"
 	uuid "github.com/hashicorp/go-uuid"
 	"github.com/hashicorp/vault/sdk/helper/cryptoutil"
 	"github.com/hashicorp/vault/sdk/logical"
@@ -961,6 +962,11 @@ func wrapTargetKeyForImport(t *testing.T, wrappingKey *rsa.PublicKey, targetKey 
 		preppedTargetKey, ok = targetKey.([]byte)
 		if !ok {
 			t.Fatal("failed to wrap target key for import: symmetric key not provided in byte format")
+		}
+	case "kyber-512":
+		preppedTargetKey, err = targetKey.(*kyber512.PrivateKey).MarshalBinary()
+		if err != nil {
+			t.Fatalf("failed to wrap target key for import: %s", err)
 		}
 	default:
 		preppedTargetKey, err = x509.MarshalPKCS8PrivateKey(targetKey)

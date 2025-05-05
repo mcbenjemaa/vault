@@ -22,6 +22,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudflare/circl/kem"
+	"github.com/cloudflare/circl/kem/kyber/kyber1024"
+	"github.com/cloudflare/circl/kem/kyber/kyber512"
+	"github.com/cloudflare/circl/kem/kyber/kyber768"
 	"github.com/hashicorp/vault/sdk/helper/cryptoutil"
 	"github.com/hashicorp/vault/sdk/helper/errutil"
 	"github.com/hashicorp/vault/sdk/helper/jsonutil"
@@ -36,7 +40,7 @@ var allTestKeyTypes = []KeyType{
 	KeyType_AES256_GCM96, KeyType_ECDSA_P256, KeyType_ED25519, KeyType_RSA2048,
 	KeyType_RSA4096, KeyType_ChaCha20_Poly1305, KeyType_ECDSA_P384, KeyType_ECDSA_P521, KeyType_AES128_GCM96,
 	KeyType_RSA3072, KeyType_MANAGED_KEY, KeyType_HMAC, KeyType_AES128_CMAC, KeyType_AES256_CMAC, KeyType_ML_DSA,
-	KeyType_HYBRID,
+	KeyType_HYBRID, KeyType_Kyber,
 }
 
 func TestPolicy_KeyTypes(t *testing.T) {
@@ -798,6 +802,15 @@ func Test_Import(t *testing.T) {
 			key:         testKeys[KeyType_AES256_GCM96],
 			shouldError: true,
 		},
+		"import kyber512 key type": {
+			policy: Policy{
+				Name:         "test-kyber512-key",
+				Type:         KeyType_Kyber,
+				ParameterSet: ParameterSetKyber512,
+			},
+			key:         testKeys[KeyType_Kyber],
+			shouldError: false,
+		},
 	}
 
 	for name, test := range tests {
@@ -868,6 +881,16 @@ func generateTestKeys() (map[KeyType][]byte, error) {
 		return nil, err
 	}
 	keyMap[KeyType_AES256_GCM96] = aesKey
+
+	_, privateKey, err := kyber512.GenerateKeyPair(rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	privateKeyBytes, err := privateKey.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	keyMap[KeyType_Kyber] = privateKeyBytes
 
 	return keyMap, nil
 }
@@ -1245,6 +1268,112 @@ func Test_RSA_PKCS1Signing(t *testing.T) {
 			}
 		}
 	}
+}
+
+func Test_Kyber(t *testing.T) {
+	t.Log("Testing Kyber key generation and validation")
+
+	ctx := context.Background()
+	storage := &logical.InmemStorage{}
+
+	tabs := make(map[int]string)
+	for i := 1; i <= 6; i++ {
+		tabs[i] = strings.Repeat("\t", i)
+	}
+
+	kyberKeyTypes := []struct {
+		keyType      KeyType
+		parameterSet string
+		scheme       kem.Scheme
+	}{
+		{KeyType_Kyber, ParameterSetKyber512, kyber512.Scheme()},
+		{KeyType_Kyber, ParameterSetKyber768, kyber768.Scheme()},
+		{KeyType_Kyber, ParameterSetKyber1024, kyber1024.Scheme()},
+	}
+
+	for _, kt := range kyberKeyTypes {
+		t.Log("Parameter set: ", kt.parameterSet)
+		testName := fmt.Sprintf("%s-%s", kt.keyType.String(), kt.parameterSet)
+		t.Run(testName, func(t *testing.T) {
+			p := &Policy{
+				Name:         fmt.Sprintf("test-kyber-%s", kt.parameterSet),
+				Type:         kt.keyType,
+				ParameterSet: kt.parameterSet,
+			}
+
+			// Generate key
+			err := p.RotateInMemory(rand.Reader)
+			if err != nil {
+				t.Fatal(tabs[1], "❌ Failed to generate Kyber key:", err)
+			}
+
+			// Verify key entry
+			if p.LatestVersion != 1 {
+				t.Fatal(tabs[1], "❌ Expected version 1, got ", p.LatestVersion)
+			}
+			keyEntry := p.Keys["1"]
+			if len(keyEntry.Key) == 0 {
+				t.Fatal(tabs[1], "❌ Kyber private key is empty")
+			}
+			if keyEntry.FormattedPublicKey == "" {
+				t.Fatal(tabs[1], "❌ Kyber public key is empty")
+			}
+
+			// Verify public key format
+			publicKeyBytes, err := base64.StdEncoding.DecodeString(keyEntry.FormattedPublicKey)
+			if err != nil {
+				t.Fatal(tabs[1], "❌ Failed to decode public key:", err)
+			}
+			_, err = kt.scheme.UnmarshalBinaryPublicKey(publicKeyBytes)
+			if err != nil {
+				t.Fatal(tabs[1], "❌ Invalid public key format:", err)
+			}
+
+			// Persist and reload policy
+			err = p.Persist(ctx, storage)
+			if err != nil {
+				t.Fatal(tabs[1], "❌ Failed to persist policy:", err)
+			}
+
+			lm, _ := NewLockManager(true, 0)
+			p, _, err = lm.GetPolicy(ctx, PolicyRequest{
+				Storage: storage,
+				Name:    p.Name,
+			}, rand.Reader)
+			if err != nil {
+				t.Fatal(tabs[1], "❌ Failed to reload policy:", err)
+			}
+			if p == nil {
+				t.Fatal(tabs[1], "❌ Nil policy after reload")
+			}
+
+			// Verify reloaded key
+			keyEntry = p.Keys["1"]
+			if len(keyEntry.Key) == 0 {
+				t.Fatal(tabs[1], "❌ Reloaded Kyber private key is empty")
+			}
+			if keyEntry.FormattedPublicKey == "" {
+				t.Fatal(tabs[1], "❌ Reloaded Kyber public key is empty")
+			}
+		})
+	}
+
+	// Test invalid parameter set
+	t.Run("invalid-parameter-set", func(t *testing.T) {
+		p := &Policy{
+			Name:         "test-kyber-invalid",
+			Type:         KeyType_Kyber,
+			ParameterSet: "invalid",
+		}
+
+		err := p.RotateInMemory(rand.Reader)
+		if err == nil {
+			t.Fatal(tabs[1], "❌ Expected error for invalid parameter set")
+		}
+		if !strings.Contains(err.Error(), "invalid parameter set") {
+			t.Fatal(tabs[1], "❌ Unexpected error message:", err)
+		}
+	})
 }
 
 // Normal Go builds support all the hash functions for RSA_PSS signatures but the

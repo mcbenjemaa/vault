@@ -468,6 +468,8 @@ func (b *backend) pathEncryptWrite(ctx context.Context, req *logical.Request, d 
 			return logical.ErrorResponse(fmt.Sprintf("key type %v not supported for this operation", keyType)), logical.ErrInvalidRequest
 		case "managed_key":
 			polReq.KeyType = keysutil.KeyType_MANAGED_KEY
+		case "kyber":
+			polReq.KeyType = keysutil.KeyType_Kyber
 		default:
 			return logical.ErrorResponse(fmt.Sprintf("unknown key type %v", keyType)), logical.ErrInvalidRequest
 		}
